@@ -44,7 +44,6 @@ class ConfigFlowHandler(SchemaConfigFlowHandler, domain=DOMAIN):
     """Handle a config or options flow for hassmic."""
 
     config_flow = CONFIG_FLOW
-    # TODO remove the options_flow if the integration does not have an options flow
     options_flow = OPTIONS_FLOW
 
     def async_config_entry_title(self, options: Mapping[str, Any]) -> str:

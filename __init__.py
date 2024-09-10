@@ -9,17 +9,25 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from . import const
+from .connection_manager import ConnectionManager
+
+class RuntimeData:
+  connection_manager: ConnectionManager
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up hassmic from a config entry."""
     # TODO Optionally store an object for your platforms to access
     # entry.runtime_data = ...
 
+    cm = ConnectionManager(hass, entry)
+    rd = RuntimeData()
+    rd.connection_manager = cm
+    entry.runtime_data = rd
+
     # TODO Optionally validate config entry options before setting up platform
 
-    await hass.config_entries.async_forward_entry_setups(entry, (Platform.SENSOR,))
+    await hass.config_entries.async_forward_entry_setups(entry, const.PLATFORMS)
 
-    # TODO Remove if the integration does not have an options flow
     entry.async_on_unload(entry.add_update_listener(config_entry_update_listener))
 
     return True
@@ -48,4 +56,6 @@ async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, (Platform.SENSOR,))
+
+    await entry.runtime_data.connection_manager.close()
+    return await hass.config_entries.async_unload_platforms(entry, const.PLATFORMS)

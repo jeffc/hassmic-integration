@@ -1,6 +1,10 @@
 """Constants for the hassmic integration."""
 
+from homeassistant.const import Platform
+
 DOMAIN = "hassmic"
+
+PLATFORMS = [Platform.SENSOR, ]
 
 PROPERTIES_META_INFO = {
     "mic": {

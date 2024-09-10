@@ -19,7 +19,7 @@ async def async_setup_entry(
 ) -> None:
     """Initialize hassmic config entry."""
     registry = er.async_get(hass)
-    # TODO Optionally validate config entry options before creating entity
+
     name = config_entry.title
     unique_id = config_entry.entry_id
 
