@@ -7,8 +7,6 @@ from typing import Any, cast
 
 import voluptuous as vol
 
-from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
-from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.helpers import selector
 from homeassistant.helpers.schema_config_entry_flow import (
     SchemaConfigFlowHandler,
@@ -20,8 +18,8 @@ from .const import DOMAIN
 
 OPTIONS_SCHEMA = vol.Schema(
     {
-      vol.Required("hostname"): str,
-      vol.Required("port"): vol.All(int, vol.Range(min=1, max=65535)),
+        vol.Required("hostname"): str,
+        vol.Required("port"): vol.All(int, vol.Range(min=1, max=65535)),
     }
 )
 

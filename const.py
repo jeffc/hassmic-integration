@@ -4,25 +4,27 @@ from homeassistant.const import Platform
 
 DOMAIN = "hassmic"
 
-PLATFORMS = [Platform.SENSOR, ]
+PLATFORMS = [
+    Platform.SENSOR,
+]
 
 PROPERTIES_META_INFO = {
     "mic": {
-      "icon": "mdi:microphone",
+        "icon": "mdi:microphone",
     },
     "wake": {
-      "icon": "mdi:chat-alert-outline",
+        "icon": "mdi:chat-alert-outline",
     },
     "stt": {
-      "icon": "mdi:ear-hearing",
+        "icon": "mdi:ear-hearing",
     },
     "intent": {
-      "icon": "mdi:brain",
+        "icon": "mdi:brain",
     },
     "tts": {
-      "icon": "mdi:speaker-message",
-    }
-  }
+        "icon": "mdi:speaker-message",
+    },
+}
 
 SENSORS_ALL = [
     "wake",
@@ -30,4 +32,3 @@ SENSORS_ALL = [
     "intent",
     "tts",
 ]
-

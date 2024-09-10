@@ -1,11 +1,16 @@
 import asyncio
-import base64
+import enum
 import json
-import sys
 import logging
 
-MAX_CHUNK_SIZE=8192
-MAX_JSON_SIZE=1024
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+from .connection_manager import ConnectionManager
+from .exceptions import BadMessageException
+
+MAX_CHUNK_SIZE = 8192
+MAX_JSON_SIZE = 1024
 
 EXTRA_MSG_TIMEOUT_SECS = 0.5
 
@@ -13,58 +18,114 @@ MESSAGE_TYPE_AUDIO_CHUNK = "audio-chunk"
 
 _LOGGER = logging.getLogger(__name__)
 
-class BadMessageException(Exception):
-  pass
 
-async def read_message(reader):
-  """Returns a new message, or None if the stream is closed."""
-  recv = await reader.readline()
-  while recv == b"\n": # skip blank lines if we're expecting JSON
-    recv = await reader.readline()
 
-  if recv == b"":
-    return None
+class Message:
+    """Defines a message type for the "Cheyenne" protocol."""
 
-  msg = {}
-  try:
-    msg = json.loads(recv.decode("utf-8"))
-  except UnicodeError:
-    raise BadMessageException("Couldn't decode message")
-  except json.JSONDecodeError:
-    raise BadMessageException(f"Failed to decode JSON: '{recv}'")
+    class MessageType(enum.Enum):
+        """The list of possible message types."""
 
-  if "type" not in msg:
-    raise BadMessageException(f"Field 'type' not in msg: '{msg};")
+        UNKNOWN = None
+        AUDIO_CHUNK = "audio-chunk"
 
-  extra_data = {}
-  payload_bytes = b""
-
-  if msg.get("data") is None:
-    msg["data"] = {}
-
-  if (data_length := msg.get("data_length", -1)) > 0:
-    _LOGGER.debug("waiting for extra data")
-    try:
-      async with asyncio.timeout(EXTRA_MSG_TIMEOUT_SECS):
-        extra_data = await reader.readexactly(data_length)
+    def __init__(self, **kwargs):
+        self.message_type = MessageType.UNKNOWN
         try:
-          d = json.loads(recv.decode("utf-8"))
-          msg["data"] |= d
+            self.message_type = MessageType(kwargs.get("message_type", None))
+        except ValueError:
+            pass
+        self.data = kwargs.get("data", {})
+        self.payload = kwargs.get("payload", b"")
+
+    def __repr__(self):
+        return (
+            f"Message ({self.message_type.name}): "
+            f"{self.data!r} "
+            f"(payload {len(self.payload)} bytes)"
+        )
+
+
+class HassMic:
+    """Handles interface between the HassMic app and home assistant."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+        """Initialize the instance."""
+
+        self._hass = hass
+        self._configentry = entry
+
+        self._connection_manager = ConnectionManager(
+            host=entry.options.get("hostname"),
+            port=entry.options.get("port"),
+            recv_fn=self.recv_message,
+        )
+
+        #hass.async_add_executor_job(asyncio.run, self._connection_manager.do_net())
+        hass.async_create_background_task(self._connection_manager.do_net(), name="hassmic_connection")
+
+    async def stop(self):
+      """Shuts down instance."""
+      await self._connection_manager.close()
+
+
+
+    async def recv_message(self, reader):
+        """Reads a message from the stream, or None if the stream is closed."""
+
+        recv = await reader.readline()
+        while recv == b"\n":  # skip blank lines if we're expecting JSON
+            recv = await reader.readline()
+
+        if recv == b"":
+            return None
+
+        msg = {}
+        try:
+            msg = json.loads(recv.decode("utf-8"))
         except UnicodeError:
-          raise BadMessageException("Couldn't decode extra data message")
+            raise BadMessageException("Couldn't decode message")
         except json.JSONDecodeError:
-          raise BadMessageException(f"Failed to decode JSON for extra data: '{msg}'")
-    except asyncio.TimeoutError:
-      raise BadMessageException("Timed out waiting for extra data")
+            raise BadMessageException(f"Failed to decode JSON: '{recv}'")
 
-  if (payload_length := msg.get("payload_length", -1)) > 0:
-    _LOGGER.debug("waiting for payload")
-    try:
-      async with asyncio.timeout(EXTRA_MSG_TIMEOUT_SECS):
-        payload_bytes = await reader.readexactly(payload_length)
-    except asyncio.TimeoutError:
-      raise BadMessageException("Timed out waiting for payload")
+        if "type" not in msg:
+            raise BadMessageException(f"Field 'type' not in msg: '{msg};")
 
-  msg["payload"] = payload_bytes
+        extra_data = {}
+        payload_bytes = b""
 
-  return msg
+        if msg.get("data") is None:
+            msg["data"] = {}
+
+        if (data_length := msg.get("data_length", -1)) > 0:
+            _LOGGER.debug("waiting for extra data")
+            try:
+                async with asyncio.timeout(EXTRA_MSG_TIMEOUT_SECS):
+                    extra_data = await reader.readexactly(data_length)
+                    try:
+                        d = json.loads(recv.decode("utf-8"))
+                        msg["data"] |= d
+                    except UnicodeError:
+                        raise BadMessageException("Couldn't decode extra data message")
+                    except json.JSONDecodeError:
+                        raise BadMessageException(
+                            f"Failed to decode JSON for extra data: '{msg}'"
+                        )
+            except TimeoutError:
+                raise BadMessageException("Timed out waiting for extra data")
+
+        if (payload_length := msg.get("payload_length", -1)) > 0:
+            _LOGGER.debug("waiting for payload")
+            try:
+                async with asyncio.timeout(EXTRA_MSG_TIMEOUT_SECS):
+                    payload_bytes = await reader.readexactly(payload_length)
+            except TimeoutError:
+                raise BadMessageException("Timed out waiting for payload")
+
+        msg["payload"] = payload_bytes
+
+        return Message(
+            message_type=msg["type"],
+            data=msg["data"],
+            payload=msg["payload"],
+        )
