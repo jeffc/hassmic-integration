@@ -7,7 +7,13 @@ import time
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .hassmic import read_message, BadMessageException
+
 _LOGGER = logging.getLogger(__name__)
+
+# How many bad messages in a row should cause us to drop the connection and
+# reconnect
+MAX_CONSECUTIVE_BAD_MESSAGES = 5
 
 class ConnectionManager:
   """Manages a connection."""
@@ -49,8 +55,14 @@ class ConnectionManager:
 
     Outside callers should call close() instead."""
     self._is_connected = False
-    self._socket_writer.close() # writer controls the underlying socket
-    await self._socket_writer.wait_closed()
+    if not self._socket_writer.is_closing():
+      self._socket_writer.close() # writer controls the underlying socket
+    try:
+      await self._socket_writer.wait_closed()
+    except ConnectionError:
+      # ignore connection errors when we're trying to close the connection
+      # anyways
+      pass
 
   async def close(self):
     """Request close of this conn manager."""
@@ -61,12 +73,24 @@ class ConnectionManager:
     while not self._should_close:
       is_eof = False
       await self.reconnect()
+      bad_messages = 0 # track consecutive bad messages
       try:
         while self._is_connected and not is_eof and not self._should_close:
-          b = await self._socket_reader.readline()
-          if b == b"":
-            _LOGGER.debug("Got EOF")
-            is_eof = True
+          try:
+            msg = await read_message(self._socket_reader)
+            if msg is None:
+              _LOGGER.debug("Got EOF")
+              is_eof = True
+          except BadMessageException as e:
+            _LOGGER.error(f"{e!r}")
+            bad_messages += 1
+            if bad_messages >= MAX_CONSECUTIVE_BAD_MESSAGES:
+              _LOGGER.error(f"Reached threshold for consecutive bad messages; reconnecting")
+              await self.reconnect()
+              bad_messages = 0
+            continue
+
+          bad_messages = 0
       except ConnectionResetError:
         _LOGGER.warn(f"Connection to {self._host}:{self._port} lost")
       except Exception as e:
