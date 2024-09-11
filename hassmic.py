@@ -80,7 +80,7 @@ class HassMic:
     async def handle_message(self, reader) -> Message:
         """Wrap handle_message and dispatches recieved messages appropriately."""
 
-        m = self.recv_message(reader)
+        m = await self.recv_message(reader)
         if m is None:
             return None
 
