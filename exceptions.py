@@ -1,5 +1,4 @@
 """Define common exception types."""
 
 class BadMessageException(Exception):
-    pass
-
+    """Exception type asserts a bad message receipt."""

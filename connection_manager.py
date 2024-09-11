@@ -1,6 +1,7 @@
 """Manages the network connection for an entry (device)."""
 
 import asyncio
+import contextlib
 import logging
 
 from .exceptions import BadMessageException
@@ -25,7 +26,7 @@ class ConnectionManager:
         port: int,
         recv_fn,  # unclear how to type-hint this
     ) -> None:
-        """Constructor."""
+        """Set up a new connection manager."""
         self._socket_reader = None
         self._socket_writer = None
 
@@ -39,23 +40,26 @@ class ConnectionManager:
         self._recv_fn = recv_fn
 
     async def reconnect(self) -> None:
+        """Connect to the target, or reconnect a dropped connection."""
         if self._is_connected:
             _LOGGER.debug(
-                f"Already connected to {self._host}:{self._port}, reconnecting"
+                "Already connected to %s:%d, reconnecting",
+                self._host, self._port
             )
             await self.destroy_socket()
 
         try:
-            _LOGGER.debug(f"Trying connection to {self._host}:{self._port}")
+            _LOGGER.debug("Trying connection to %s:%d", self._host, self._port)
             self._socket_reader, self._socket_writer = await asyncio.open_connection(
                 self._host, self._port
             )
             self._is_connected = True
-            _LOGGER.debug(f"Connected to {self._host}:{self._port}")
-        except Exception as e:
+            _LOGGER.debug("Connected to %s:%d", self._host, self._port)
+        except Exception as e: # noqa: BLE001
             self._is_connected = False
             _LOGGER.error(
-                f"Encountered an error trying to connect to {self._host}:{self._port}: {e!r}"
+                "Encountered an error trying to connect to %s:%d: %s",
+                self._host, self._port, repr(e)
             )
 
     async def destroy_socket(self):
@@ -70,12 +74,11 @@ class ConnectionManager:
 
         if not self._socket_writer.is_closing():
             self._socket_writer.close()  # writer controls the underlying socket
-        try:
+
+        # ignore connection errors when we're trying to close the connection
+        # anyways
+        with contextlib.suppress(ConnectionError):
             await self._socket_writer.wait_closed()
-        except ConnectionError:
-            # ignore connection errors when we're trying to close the connection
-            # anyways
-            pass
 
     async def close(self):
         """Request close of this conn manager."""
@@ -83,7 +86,8 @@ class ConnectionManager:
         self._should_close = True
 
     async def do_net(self):
-        _LOGGER.info(f"Starting network tasks for {self._host}:{self._port}")
+        """Run the network management loop."""
+        _LOGGER.info("Starting network tasks for %s:%d", self._host, self._port)
         while not self._should_close:
             is_eof = False
             await self.reconnect()
@@ -96,7 +100,7 @@ class ConnectionManager:
                             _LOGGER.debug("Got EOF")
                             is_eof = True
                     except BadMessageException as e:
-                        _LOGGER.error(f"{e!r}")
+                        _LOGGER.error(repr(e))
                         bad_messages += 1
                         if bad_messages >= MAX_CONSECUTIVE_BAD_MESSAGES:
                             _LOGGER.error(
@@ -108,12 +112,13 @@ class ConnectionManager:
 
                     bad_messages = 0
             except ConnectionResetError:
-                _LOGGER.warning(f"Connection to {self._host}:{self._port} lost")
-            except Exception as e:
-                _LOGGER.error(f"Unexpected exception: {e!r}")
+                _LOGGER.warning("Connection to %s:%d lost", self._host, self._port)
+            except Exception as e: # noqa: BLE001
+                _LOGGER.error("Unexpected exception: %s", repr(e))
 
-            _LOGGER.warning(f"Disconnected from {self._host}:{self._port}; will reconnect")
+            _LOGGER.warning("Disconnected from %s:%d; will reconnect",
+                            self._host, self._port)
             await asyncio.sleep(2)
 
-        _LOGGER.info(f"Shutting down connection to {self._host}:{self._port}")
+        _LOGGER.info("Shutting down connection to %s:%d", self._host, self._port)
         await self.destroy_socket()
