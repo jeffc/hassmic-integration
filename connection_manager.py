@@ -85,7 +85,7 @@ class ConnectionManager:
         _LOGGER.debug("Closing conn manager")
         self._should_close = True
 
-    async def do_net(self):
+    async def run(self):
         """Run the network management loop."""
         _LOGGER.info("Starting network tasks for %s:%d", self._host, self._port)
         while not self._should_close:

@@ -3,7 +3,7 @@
     "name": "hassmic",
     "codeowners": ["@jeffc"],
     "config_flow": true,
-    "dependencies": [],
+    "dependencies": ["stt", "assist_pipeline"],
     "documentation": "https://www.home-assistant.io/integrations/hassmic",
     "homekit": {},
     "integration_type": "device",

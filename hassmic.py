@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 
 from .connection_manager import ConnectionManager
 from .exceptions import BadMessageException
+from .pipeline_manager import PipelineManager
 
 MAX_CHUNK_SIZE = 8192
 MAX_JSON_SIZE = 1024
@@ -69,8 +70,16 @@ class HassMic:
             recv_fn=self.handle_message,
         )
 
-        hass.async_create_background_task(
-            self._connection_manager.do_net(), name="hassmic_connection"
+        self._pipeline_manager = PipelineManager(hass, entry)
+
+        entry.async_create_background_task(
+            hass,
+            self._connection_manager.run(), name="hassmic_connection"
+        )
+
+        entry.async_create_background_task(
+            hass,
+            self._pipeline_manager.run(), name="hassmic_pipeline"
         )
 
     async def stop(self):
@@ -84,7 +93,7 @@ class HassMic:
         if m is None:
             return None
 
-        match m.type:
+        match m.message_type:
             case MessageType.UNKNOWN:
                 _LOGGER.warning(
                     "Got an unknown message from " "%s:%d. Ignoring it.",
@@ -94,9 +103,10 @@ class HassMic:
 
             case MessageType.AUDIO_CHUNK:
                 # handle audio data
-                rate = m.data.get("rate")
-                width = m.data.get("width")
-                channels = m.data.get("channels")
+                #rate = m.data.get("rate")
+                #width = m.data.get("width")
+                #channels = m.data.get("channels")
+                self._pipeline_manager.enqueue_chunk(m.payload)
 
             case _:
                 _LOGGER.error("Got unhandled (but known) message type %s", m.type.name)
@@ -130,7 +140,6 @@ class HassMic:
             msg["data"] = {}
 
         if (data_length := msg.get("data_length", -1)) > 0:
-            _LOGGER.debug("waiting for extra data")
             try:
                 async with asyncio.timeout(EXTRA_MSG_TIMEOUT_SECS):
                     extra_data = await reader.readexactly(data_length)
@@ -149,7 +158,6 @@ class HassMic:
                 raise BadMessageException("Timed out waiting for extra data") from err
 
         if (payload_length := msg.get("payload_length", -1)) > 0:
-            _LOGGER.debug("waiting for payload")
             try:
                 async with asyncio.timeout(EXTRA_MSG_TIMEOUT_SECS):
                     payload_bytes = await reader.readexactly(payload_length)
