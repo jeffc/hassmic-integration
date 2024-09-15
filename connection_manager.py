@@ -85,6 +85,11 @@ class ConnectionManager:
         _LOGGER.debug("Closing conn manager")
         self._should_close = True
 
+        # ignore connection errors when we're trying to close the connection
+        # anyways
+        with contextlib.suppress(ConnectionError):
+            await self._socket_writer.wait_closed()
+
     async def run(self):
         """Run the network management loop."""
         _LOGGER.info("Starting network tasks for %s:%d", self._host, self._port)
@@ -99,6 +104,7 @@ class ConnectionManager:
                         if msg is None:
                             _LOGGER.debug("Got EOF")
                             is_eof = True
+                            self._is_connected = False
                     except BadMessageException as e:
                         _LOGGER.error(repr(e))
                         bad_messages += 1

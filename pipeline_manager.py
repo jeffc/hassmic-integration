@@ -1,11 +1,14 @@
 """Defines a class to manage the assist pipeline."""
 
 import asyncio
-import aiofiles
 import logging
 
 from homeassistant.components import assist_pipeline, stt
-from homeassistant.components.assist_pipeline.pipeline import PipelineStage
+from homeassistant.components.assist_pipeline.error import WakeWordDetectionError
+from homeassistant.components.assist_pipeline.pipeline import (
+    PipelineEventCallback,
+    PipelineStage,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant
 
@@ -33,45 +36,44 @@ class QueueAsyncIterable:
 class PipelineManager:
     """Manages the connection to the assist pipeline."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, event_callback: PipelineEventCallback):
         """Construct a new manager."""
         self._hass: HomeAssistant = hass
+        self._entry: ConfigEntry = entry
+        self._event_callback: PipelineEventCallback = event_callback
         self._queue: asyncio.Queue[bytes] = asyncio.Queue(QUEUE_MAX_CHUNKS)
         self._stream = QueueAsyncIterable(self._queue)
 
     async def run(self):
         """Run the managed pipeline."""
-        #self._pipeline = await assist_pipeline.get(self._hass)
-        #_LOGGER.debug("Got pipeline: %s", repr(self._pipeline))
-        _LOGGER.debug("Starting pipelinemanager")
 
-        def cb(e):
-            _LOGGER.debug("Got event from pipeline: %s", repr(e))
+        _LOGGER.debug("Starting pipeline manager")
 
-        #async with aiofiles.open('/tmp/assist.pcm', 'w') as f:
-        #  while True:
-        #    s = await self._queue.get()
-        #    await f.write(s)
-        #    _LOGGER.debug("wrote sample of size %d", len(s))
-          
         while True:
-            await assist_pipeline.async_pipeline_from_audio_stream(
-                    hass=self._hass,
-                    context=Context(),
-                    event_callback=cb,
-                    stt_stream=self._stream,
-										stt_metadata=stt.SpeechMetadata(
-                      language = "",
-											format=stt.AudioFormats.WAV,
-											codec=stt.AudioCodecs.PCM,
-											bit_rate=stt.AudioBitRates.BITRATE_16,
-											sample_rate=stt.AudioSampleRates.SAMPLERATE_16000,
-											channel=stt.AudioChannels.CHANNEL_MONO,
-										),
-                    start_stage=PipelineStage.WAKE_WORD,
-										)
+            try:
+                await assist_pipeline.async_pipeline_from_audio_stream(
+                        hass=self._hass,
+                        context=Context(),
+                        event_callback=self._event_callback,
+                        stt_stream=self._stream,
+                        stt_metadata=stt.SpeechMetadata(
+                          language = "",
+                          format=stt.AudioFormats.WAV,
+                          codec=stt.AudioCodecs.PCM,
+                          bit_rate=stt.AudioBitRates.BITRATE_16,
+                          sample_rate=stt.AudioSampleRates.SAMPLERATE_16000,
+                          channel=stt.AudioChannels.CHANNEL_MONO,
+                        ),
+                        start_stage=PipelineStage.WAKE_WORD,
+                        )
 
-            _LOGGER.debug("Pipeline finished, starting over")
+                _LOGGER.debug("Pipeline finished, starting over")
+            except WakeWordDetectionError as e:
+                if e.code == "wake-provider-missing":
+                    _LOGGER.warning("Wakeword provider missing from pipeline.  Maybe not set up yet? Waiting and trying again.")
+                    await asyncio.sleep(2)
+                else:
+                    raise
 
 
 

@@ -43,6 +43,8 @@ def init_entity(entity: Entity, key: str, config_entry: ConfigEntry) -> str:
         identifiers={(const.DOMAIN, unique_id)},
     )
 
+    config_entry.runtime_data.register_entity(entity)
+
 
 async def config_entry_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update listener, called when the config entry options are changed."""

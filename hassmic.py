@@ -6,8 +6,10 @@ import enum
 import json
 import logging
 
+from homeassistant.components.assist_pipeline.pipeline import PipelineEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import Entity
 
 from .connection_manager import ConnectionManager
 from .exceptions import BadMessageException
@@ -64,13 +66,17 @@ class HassMic:
         self._host = entry.options.get("hostname")
         self._port = entry.options.get("port")
 
+        # track the entities created alongside this hassmic
+        self._entities = []
+
         self._connection_manager = ConnectionManager(
             host=self._host,
             port=self._port,
-            recv_fn=self.handle_message,
+            recv_fn=self.handle_incoming_message,
         )
 
-        self._pipeline_manager = PipelineManager(hass, entry)
+        self._pipeline_manager = PipelineManager(hass, entry,
+                                                 self._pipeline_event_callback)
 
         entry.async_create_background_task(
             hass,
@@ -82,12 +88,23 @@ class HassMic:
             self._pipeline_manager.run(), name="hassmic_pipeline"
         )
 
+    def register_entity(self, ent: Entity):
+      """Add an entity to the list of entities generated for this hassmic."""
+      self._entities.append(ent)
+
+    def _pipeline_event_callback(self, event: PipelineEvent):
+        _LOGGER.debug("Got pipeline event: %s", repr(event))
+        for e in self._entities:
+            hpe = getattr(e, "handle_pipeline_event", None)
+            if hpe is not None and callable(hpe):
+                e.handle_pipeline_event(event)
+
     async def stop(self):
         """Shut down instance."""
         await self._connection_manager.close()
 
-    async def handle_message(self, reader) -> Message:
-        """Wrap handle_message and dispatches recieved messages appropriately."""
+    async def handle_incoming_message(self, reader) -> Message:
+        """Wrap recv_message and dispatches recieved messages appropriately."""
 
         m = await self.recv_message(reader)
         if m is None:

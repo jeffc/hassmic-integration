@@ -28,12 +28,12 @@ PROPERTIES_META_INFO = {
     "tts": {
         "icon": "mdi:speaker-message",
     },
+    "state": {
+        "icon": "mdi:assistant",
+    }
 }
 
-# A list of the sensors provided by each instance of this integration
-SENSORS_ALL = [
-    "wake",
-    "stt",
-    "intent",
-    "tts",
-]
+# Possible states for sensors
+STATE_LISTENING = "listening"
+STATE_DETECTED = "detected"
+STATE_ERROR = "error"
