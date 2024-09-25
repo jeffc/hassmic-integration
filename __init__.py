@@ -32,7 +32,7 @@ def init_entity(entity: Entity, key: str, config_entry: ConfigEntry) -> str:
     "key" is the unique name within this device for the given entity (ie "wake" or
     "tts").
     """
-    unique_id = config_entry.entry_id
+    unique_id = config_entry.unique_id
     entity.unique_id = f"{unique_id}-{key}"
     entity.name = config_entry.title + " " + key.upper().replace("_", " ")
     entity.icon = const.PROPERTIES_META_INFO.get(key, {}).get(

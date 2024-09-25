@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import enum
 import logging
+import re
 
 from homeassistant.components.assist_pipeline.pipeline import (
     PipelineEvent,
     PipelineEventType,
 )
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import ENTITY_ID_FORMAT, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_IDLE
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import init_entity
@@ -45,9 +47,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Initialize hassmic config entry for sensors."""
-    async_add_entities(
-        [hassmicSensorEntity(config_entry, key) for key in WhichSensor]
-    )
+
+    async_add_entities([hassmicSensorEntity(hass, config_entry, key) for key in WhichSensor])
 
 
 class hassmicSensorEntity(SensorEntity):
@@ -56,11 +57,16 @@ class hassmicSensorEntity(SensorEntity):
     _attr_native_value = STATE_IDLE
     _attr_should_poll = False
 
-    def __init__(self, config_entry: ConfigEntry, key: WhichSensor) -> None:
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, key: WhichSensor) -> None:
         """Initialize hassmic Sensor."""
         super().__init__()
         init_entity(self, key.value, config_entry)
         self._key: WhichSensor = key
+
+        id_candidate = re.sub(
+                r"[^A-Za-z0-9_]", "_", f"{config_entry.title}_{key.value}".lower())
+        self.entity_id = generate_entity_id(ENTITY_ID_FORMAT, id_candidate, hass=hass)
+
 
     def handle_pipeline_event(self, event: PipelineEvent):
         """Handle a `PipelineEvent` and perform any required state updates.

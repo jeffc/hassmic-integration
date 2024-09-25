@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
 
 from .connection_manager import ConnectionManager
-from .exceptions import BadMessageException
+from .exceptions import BadHassMicClientInfoException, BadMessageException
 from .pipeline_manager import PipelineManager
 
 MAX_CHUNK_SIZE = 8192
@@ -24,12 +24,12 @@ MESSAGE_TYPE_AUDIO_CHUNK = "audio-chunk"
 
 _LOGGER = logging.getLogger(__name__)
 
-
 class MessageType(enum.Enum):
     """The list of possible message types."""
 
     UNKNOWN = None
     AUDIO_CHUNK = "audio-chunk"
+    CLIENT_INFO = "client-info"
 
 
 class Message:
@@ -57,14 +57,38 @@ class Message:
 class HassMic:
     """Handles interface between the HassMic app and home assistant."""
 
+    @staticmethod
+    async def async_validate_connection_params(host: str, port: int) -> str:
+        """"Validate the connection parameters and return the UUID of the host.
+
+        Raise an exception if target is invalid.
+        """
+
+
+        _LOGGER.debug("Trying to validate connection to %s:%d", host, port)
+        reader, writer = await asyncio.open_connection(host, port)
+        try:
+          async with asyncio.timeout(2):
+            m = await HassMic.recv_message(reader)
+            if m.message_type == MessageType.CLIENT_INFO:
+              if (uuid := m.data.get("uuid")) is not None:
+                return uuid
+            raise BadHassMicClientInfoException
+        # Finally is executed regardless of result
+        finally:
+          writer.close()
+          await writer.wait_closed()
+
+
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         """Initialize the instance."""
 
         self._hass = hass
         self._configentry = entry
 
-        self._host = entry.options.get("hostname")
-        self._port = entry.options.get("port")
+        self._host = entry.data.get("hostname")
+        self._port = entry.data.get("port")
 
         # track the entities created alongside this hassmic
         self._entities = []
@@ -106,7 +130,7 @@ class HassMic:
     async def handle_incoming_message(self, reader) -> Message:
         """Wrap recv_message and dispatches recieved messages appropriately."""
 
-        m = await self.recv_message(reader)
+        m = await HassMic.recv_message(reader)
         if m is None:
             return None
 
@@ -125,12 +149,16 @@ class HassMic:
                 #channels = m.data.get("channels")
                 self._pipeline_manager.enqueue_chunk(m.payload)
 
+            case MessageType.CLIENT_INFO:
+                _LOGGER.debug("Got client info: %s", repr(m.data))
+
             case _:
-                _LOGGER.error("Got unhandled (but known) message type %s", m.type.name)
+                _LOGGER.error("Got unhandled (but known) message type %s", m.message_type.name)
 
         return m
 
-    async def recv_message(self, reader) -> Message:
+    @staticmethod
+    async def recv_message(reader) -> Message:
         """Read a message from the stream, or None if the stream is closed."""
 
         recv = await reader.readline()

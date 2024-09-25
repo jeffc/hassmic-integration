@@ -12,7 +12,6 @@ _LOGGER = logging.getLogger(__name__)
 # reconnect
 MAX_CONSECUTIVE_BAD_MESSAGES = 5
 
-
 class ConnectionManager:
     """Manages a connection, including reconnects.
 
