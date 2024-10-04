@@ -87,7 +87,8 @@ class ConnectionManager:
         # ignore connection errors when we're trying to close the connection
         # anyways
         with contextlib.suppress(ConnectionError):
-            await self._socket_writer.wait_closed()
+            if self._socket_writer:
+                await self._socket_writer.wait_closed()
 
     async def run(self):
         """Run the network management loop."""
