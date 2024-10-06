@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 
 from .exceptions import BadMessageException
 
@@ -11,6 +12,9 @@ _LOGGER = logging.getLogger(__name__)
 # How many bad messages in a row should cause us to drop the connection and
 # reconnect
 MAX_CONSECUTIVE_BAD_MESSAGES = 5
+
+# How long to wait until we assume the connection has died
+TIMEOUT_SECS = 5
 
 class ConnectionManager:
     """Manages a connection, including reconnects.
@@ -34,6 +38,9 @@ class ConnectionManager:
 
         self._is_connected = False
         self._should_close = False
+
+        # track the time of the most recent message
+        self._most_recent_message_timestamp = time.time()
 
         # set a callback that processes the connection
         self._recv_fn = recv_fn
@@ -90,41 +97,76 @@ class ConnectionManager:
             if self._socket_writer:
                 await self._socket_writer.wait_closed()
 
+    async def ping_watchdog(self, task_to_cancel):
+        """Run a continuous check that the connection isn't dead."""
+        try:
+            _LOGGER.debug("Starting ping watchdog")
+            while True:
+                # give messages a chance to come in
+                await asyncio.sleep(TIMEOUT_SECS)
+                now = time.time()
+                diff = int(now - self._most_recent_message_timestamp)
+                if diff > TIMEOUT_SECS:
+                    _LOGGER.warning(
+                            "Last message from %s is %d seconds old. "
+                            "Assuming connection is dead",
+                            self._host,
+                            diff)
+                    self._is_connected = False
+                    task_to_cancel.cancel()
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _LOGGER.debug("Stopping ping watchdog")
+
     async def run(self):
         """Run the network management loop."""
         _LOGGER.info("Starting network tasks for %s:%d", self._host, self._port)
         while not self._should_close:
-            is_eof = False
             await self.reconnect()
-            bad_messages = 0  # track consecutive bad messages
-            try:
-                while self._is_connected and not is_eof and not self._should_close:
-                    try:
-                        msg = await self._recv_fn(self._socket_reader)
-                        if msg is None:
-                            _LOGGER.debug("Got EOF")
-                            is_eof = True
-                            self._is_connected = False
-                    except BadMessageException as e:
-                        _LOGGER.error(repr(e))
-                        bad_messages += 1
-                        if bad_messages >= MAX_CONSECUTIVE_BAD_MESSAGES:
-                            _LOGGER.error(
-                                "Reached threshold for consecutive bad messages; reconnecting"
-                            )
-                            await self.reconnect()
-                            bad_messages = 0
-                        continue
 
-                    bad_messages = 0
-            except ConnectionResetError:
-                _LOGGER.warning("Connection to %s:%d lost", self._host, self._port)
-            except Exception as e: # noqa: BLE001
-                _LOGGER.error("Unexpected exception: %s", repr(e))
+            async def do_net_loop():
+                try:
+                    is_eof = False
+                    bad_messages = 0  # track consecutive bad messages
+                    while self._is_connected and not is_eof and not self._should_close:
+                        try:
+                            msg = await self._recv_fn(self._socket_reader)
+                            if msg is None:
+                                _LOGGER.debug("Got EOF")
+                                is_eof = True
+                                self._is_connected = False
+                            self._most_recent_message_timestamp = time.time()
+                        except BadMessageException as e:
+                            _LOGGER.error(repr(e))
+                            bad_messages += 1
+                            if bad_messages >= MAX_CONSECUTIVE_BAD_MESSAGES:
+                                _LOGGER.error(
+                                    "Reached threshold for consecutive bad messages; reconnecting"
+                                )
+                                await self.reconnect()
+                                bad_messages = 0
+                            continue
+
+                        bad_messages = 0
+                except ConnectionResetError:
+                    _LOGGER.warning("Connection to %s:%d lost", self._host, self._port)
+                except asyncio.CancelledError:
+                    _LOGGER.debug("Got cancellation from watchdog, aborting")
+                except Exception as e: # noqa: BLE001
+                    _LOGGER.error("Unexpected exception: %s", repr(e))
+
+            net_task = asyncio.create_task(do_net_loop())
+            watchdog_task = asyncio.create_task(self.ping_watchdog(net_task))
+
+            await net_task
+            watchdog_task.cancel()
+            await watchdog_task
 
             _LOGGER.warning("Disconnected from %s:%d; will reconnect",
                             self._host, self._port)
             await asyncio.sleep(2)
 
         _LOGGER.info("Shutting down connection to %s:%d", self._host, self._port)
-        await self.destroy_socket()
+        await self.destry_socket()

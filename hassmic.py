@@ -27,9 +27,10 @@ _LOGGER = logging.getLogger(__name__)
 class MessageType(enum.Enum):
     """The list of possible message types."""
 
-    UNKNOWN = None
+    UNKNOWN     = None
     AUDIO_CHUNK = "audio-chunk"
     CLIENT_INFO = "client-info"
+    PING        = "ping"
 
 
 class Message:
@@ -151,6 +152,9 @@ class HassMic:
 
             case MessageType.CLIENT_INFO:
                 _LOGGER.debug("Got client info: %s", repr(m.data))
+
+            case MessageType.PING:
+                pass
 
             case _:
                 _LOGGER.error("Got unhandled (but known) message type %s", m.message_type.name)
