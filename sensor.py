@@ -67,12 +67,21 @@ class hassmicSensorEntity(SensorEntity):
                 r"[^A-Za-z0-9_]", "_", f"{config_entry.title}_{key.value}".lower())
         self.entity_id = generate_entity_id(ENTITY_ID_FORMAT, id_candidate, hass=hass)
 
+    def handle_connection_state_change(self, new_state: bool):
+      """Handle a connection state change."""
+      self.available = new_state
+      self.schedule_update_ha_state()
 
     def handle_pipeline_event(self, event: PipelineEvent):
         """Handle a `PipelineEvent` and perform any required state updates.
 
         This is called on *every* sensor for *every* pipeline event.
         """
+
+        # if we're not connected (sensor is unavailable), ignore pipeline state
+        # updates
+        if not self.available:
+          return
 
         # For the state sensor, just set the state to the event type and don't
         # do any processing.

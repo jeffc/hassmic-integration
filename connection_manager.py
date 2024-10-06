@@ -28,6 +28,7 @@ class ConnectionManager:
         host: str,
         port: int,
         recv_fn,  # unclear how to type-hint this
+        connection_state_callback,
     ) -> None:
         """Set up a new connection manager."""
         self._socket_reader = None
@@ -36,14 +37,26 @@ class ConnectionManager:
         self._host = host
         self._port = port
 
-        self._is_connected = False
-        self._should_close = False
-
         # track the time of the most recent message
         self._most_recent_message_timestamp = time.time()
 
         # set a callback that processes the connection
         self._recv_fn = recv_fn
+
+        # set a callback when the connection state changes
+        self._conn_state_callback = connection_state_callback
+
+        self.set_connection_state(False)
+        self._should_close = False
+
+    def set_connection_state(self, s: bool):
+        """Update the internal connection state."""
+        self._is_connected = s
+        if self._conn_state_callback and callable(self._conn_state_callback):
+            _LOGGER.debug("Calling state callback %s", repr(s))
+            self._conn_state_callback(s)
+        else:
+            _LOGGER.debug("NOT calling state callback")
 
     async def reconnect(self) -> None:
         """Connect to the target, or reconnect a dropped connection."""
@@ -59,10 +72,10 @@ class ConnectionManager:
             self._socket_reader, self._socket_writer = await asyncio.open_connection(
                 self._host, self._port
             )
-            self._is_connected = True
+            self.set_connection_state(True)
             _LOGGER.debug("Connected to %s:%d", self._host, self._port)
         except Exception as e: # noqa: BLE001
-            self._is_connected = False
+            self.set_connection_state(False)
             _LOGGER.error(
                 "Encountered an error trying to connect to %s:%d: %s",
                 self._host, self._port, repr(e)
@@ -73,7 +86,7 @@ class ConnectionManager:
 
         Outside callers should call close() instead.
         """
-        self._is_connected = False
+        self.set_connection_state(False)
         if self._socket_writer is None:
           # no socket to destroy
           return
@@ -112,7 +125,7 @@ class ConnectionManager:
                             "Assuming connection is dead",
                             self._host,
                             diff)
-                    self._is_connected = False
+                    self.set_connection_state(False)
                     task_to_cancel.cancel()
                 await asyncio.sleep(1)
         except asyncio.CancelledError:
@@ -136,7 +149,7 @@ class ConnectionManager:
                             if msg is None:
                                 _LOGGER.debug("Got EOF")
                                 is_eof = True
-                                self._is_connected = False
+                                self.set_connection_state(False)
                             self._most_recent_message_timestamp = time.time()
                         except BadMessageException as e:
                             _LOGGER.error(repr(e))

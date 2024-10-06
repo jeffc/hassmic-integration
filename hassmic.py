@@ -98,6 +98,7 @@ class HassMic:
             host=self._host,
             port=self._port,
             recv_fn=self.handle_incoming_message,
+            connection_state_callback=self._handle_connection_state_change,
         )
 
         self._pipeline_manager = PipelineManager(hass, entry,
@@ -123,6 +124,14 @@ class HassMic:
             hpe = getattr(e, "handle_pipeline_event", None)
             if hpe is not None and callable(hpe):
                 e.handle_pipeline_event(event)
+
+    def _handle_connection_state_change(self, new_state: bool):
+        """Handle a state change from the connection manager."""
+        _LOGGER.debug("Got connection change to state: %s", repr(new_state))
+        for e in self._entities:
+            hcsc = getattr(e, "handle_connection_state_change", None)
+            if hcsc is not None and callable(hcsc):
+                e.handle_connection_state_change(new_state)
 
     async def stop(self):
         """Shut down instance."""
