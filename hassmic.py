@@ -13,6 +13,7 @@ from homeassistant.components.assist_pipeline.pipeline import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .connection_manager import ConnectionManager
 from .exceptions import BadHassMicClientInfoException, BadMessageException
@@ -129,7 +130,13 @@ class HassMic:
 
         if event.type is PipelineEventType.TTS_END and (o := event.data.get("tts_output")):
             path = o.get("url")
-            urlbase = (self._hass.config.internal_url or self._hass.config.external_url)
+            urlbase = None
+            try:
+              urlbase = get_url(self._hass)
+            except NoURLAvailableError:
+              _LOGGER.error(
+                  "Failed to get a working URL for this Home Assistant "
+                  "instance; can't send TTS URL to hassmic")
 
             if path and urlbase:
                 _LOGGER.debug("Play URL: '%s'", urlbase + path)

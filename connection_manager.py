@@ -205,7 +205,7 @@ class ConnectionManager:
                         await self.send(d)
                 except asyncio.CancelledError:
                     _LOGGER.debug("Send task got cancellation; cleaning up")
-                except Exception as e:
+                except Exception as e: # noqa: BLE001
                     _LOGGER.error(str(e))
                 finally:
                     _LOGGER.debug("Exited send loop")
