@@ -6,7 +6,10 @@ import enum
 import json
 import logging
 
-from homeassistant.components.assist_pipeline.pipeline import PipelineEvent
+from homeassistant.components.assist_pipeline.pipeline import (
+    PipelineEvent,
+    PipelineEventType,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
@@ -101,8 +104,7 @@ class HassMic:
             connection_state_callback=self._handle_connection_state_change,
         )
 
-        self._pipeline_manager = PipelineManager(hass, entry,
-                                                 self._pipeline_event_callback)
+        self._pipeline_manager = PipelineManager(hass, entry, self._pipeline_event_callback)
 
         entry.async_create_background_task(
             hass,
@@ -119,7 +121,31 @@ class HassMic:
       self._entities.append(ent)
 
     def _pipeline_event_callback(self, event: PipelineEvent):
+        """Update states in response to pipeline event.
+
+        This function also handles dispatching the media URL.
+        """
         _LOGGER.debug("Got pipeline event: %s", repr(event))
+
+        if event.type is PipelineEventType.TTS_END and (o := event.data.get("tts_output")):
+            path = o.get("url")
+            urlbase = (self._hass.config.internal_url or self._hass.config.external_url)
+
+            if path and urlbase:
+                _LOGGER.debug("Play URL: '%s'", urlbase + path)
+                self._connection_manager.send_enqueue({
+                    "type": "play-tts",
+                    "data": {
+                        "url": urlbase + path,
+                    },
+                })
+            else:
+                _LOGGER.warning(
+                    "Can't play TTS: (%s) or URL Base (%s) not found",
+                    path,
+                    urlbase,
+                )
+
         for e in self._entities:
             hpe = getattr(e, "handle_pipeline_event", None)
             if hpe is not None and callable(hpe):

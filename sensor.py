@@ -72,7 +72,7 @@ class hassmicSensorEntity(SensorEntity):
       self.available = new_state
       self.schedule_update_ha_state()
 
-    def handle_pipeline_event(self, event: PipelineEvent):
+    def handle_pipeline_event(self, event: PipelineEvent): # noqa: C901
         """Handle a `PipelineEvent` and perform any required state updates.
 
         This is called on *every* sensor for *every* pipeline event.

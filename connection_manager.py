@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 
@@ -14,7 +15,7 @@ _LOGGER = logging.getLogger(__name__)
 MAX_CONSECUTIVE_BAD_MESSAGES = 5
 
 # How long to wait until we assume the connection has died
-TIMEOUT_SECS = 5
+TIMEOUT_SECS = 15
 
 class ConnectionManager:
     """Manages a connection, including reconnects.
@@ -45,6 +46,9 @@ class ConnectionManager:
 
         # set a callback when the connection state changes
         self._conn_state_callback = connection_state_callback
+
+        # keep a queue of messages to send that can be written to synchronously
+        self._outbox = asyncio.Queue()
 
         self.set_connection_state(False)
         self._should_close = False
@@ -110,8 +114,14 @@ class ConnectionManager:
             if self._socket_writer:
                 await self._socket_writer.wait_closed()
 
-    async def ping_watchdog(self, task_to_cancel):
+    async def ping_watchdog(self, task_group_to_cancel: asyncio.TaskGroup):
         """Run a continuous check that the connection isn't dead."""
+        class TGErr(Exception):
+            """Artificial exception to kill task group."""
+
+        async def kill_task_group_task():
+            raise TGErr
+
         try:
             _LOGGER.debug("Starting ping watchdog")
             while True:
@@ -126,12 +136,26 @@ class ConnectionManager:
                             self._host,
                             diff)
                     self.set_connection_state(False)
-                    task_to_cancel.cancel()
+                    task_group_to_cancel.create_task(kill_task_group_task())
+                    _LOGGER.debug("Leaving ping watchdog")
+                    return
                 await asyncio.sleep(1)
-        except asyncio.CancelledError:
+        except TGErr:
             pass
         finally:
             _LOGGER.debug("Stopping ping watchdog")
+
+    async def send(self, data: dict):
+        """Send some data over the socket, if connected."""
+        if self._socket_writer:
+            self._socket_writer.write((json.dumps(data) + "\n").encode())
+            await self._socket_writer.drain()
+        else:
+            _LOGGER.warning("Tried to write data to dead socket")
+
+    def send_enqueue(self, data: dict):
+        """Enqueue data to be sent synchronously."""
+        self._outbox.put_nowait(data)
 
     async def run(self):
         """Run the network management loop."""
@@ -169,11 +193,30 @@ class ConnectionManager:
                     _LOGGER.debug("Got cancellation from watchdog, aborting")
                 except Exception as e: # noqa: BLE001
                     _LOGGER.error("Unexpected exception: %s", repr(e))
+                finally:
+                    _LOGGER.debug("Exited rec loop")
 
-            net_task = asyncio.create_task(do_net_loop())
-            watchdog_task = asyncio.create_task(self.ping_watchdog(net_task))
+            async def send_loop():
+                """Loop over messages in the outbox and send them."""
+                try:
+                    while True:
+                        d = await self._outbox.get()
+                        _LOGGER.debug("Sending from queue: `%s`", str(d))
+                        await self.send(d)
+                except asyncio.CancelledError:
+                    _LOGGER.debug("Send task got cancellation; cleaning up")
+                except Exception as e:
+                    _LOGGER.error(str(e))
+                finally:
+                    _LOGGER.debug("Exited send loop")
 
-            await net_task
+            watchdog_task = None
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(do_net_loop())
+                tg.create_task(send_loop())
+
+                watchdog_task = asyncio.create_task(self.ping_watchdog(tg))
+
             watchdog_task.cancel()
             await watchdog_task
 
@@ -182,4 +225,4 @@ class ConnectionManager:
             await asyncio.sleep(2)
 
         _LOGGER.info("Shutting down connection to %s:%d", self._host, self._port)
-        await self.destry_socket()
+        await self.destroy_socket()
