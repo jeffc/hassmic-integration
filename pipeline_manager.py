@@ -11,6 +11,7 @@ from homeassistant.components.assist_pipeline.pipeline import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,10 +37,11 @@ class QueueAsyncIterable:
 class PipelineManager:
     """Manages the connection to the assist pipeline."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, event_callback: PipelineEventCallback):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device: DeviceEntry, event_callback: PipelineEventCallback):
         """Construct a new manager."""
         self._hass: HomeAssistant = hass
         self._entry: ConfigEntry = entry
+        self._device: DeviceEntry = device
         self._event_callback: PipelineEventCallback = event_callback
         self._queue: asyncio.Queue[bytes] = asyncio.Queue(QUEUE_MAX_CHUNKS)
         self._stream = QueueAsyncIterable(self._queue)
@@ -65,6 +67,7 @@ class PipelineManager:
                           channel=stt.AudioChannels.CHANNEL_MONO,
                         ),
                         start_stage=PipelineStage.WAKE_WORD,
+                        device_id = self._device.id,
                         )
 
                 _LOGGER.debug("Pipeline finished, starting over")

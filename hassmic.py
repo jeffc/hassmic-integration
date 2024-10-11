@@ -13,6 +13,7 @@ from homeassistant.components.assist_pipeline.pipeline import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .connection_manager import ConnectionManager
@@ -86,11 +87,12 @@ class HassMic:
 
 
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device: DeviceEntry):
         """Initialize the instance."""
 
         self._hass = hass
         self._configentry = entry
+        self._device = device
 
         self._host = entry.data.get("hostname")
         self._port = entry.data.get("port")
@@ -105,7 +107,7 @@ class HassMic:
             connection_state_callback=self._handle_connection_state_change,
         )
 
-        self._pipeline_manager = PipelineManager(hass, entry, self._pipeline_event_callback)
+        self._pipeline_manager = PipelineManager(hass, entry, self._device, self._pipeline_event_callback)
 
         entry.async_create_background_task(
             hass,

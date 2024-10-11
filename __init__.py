@@ -7,6 +7,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo, Entity
+from homeassistant.helpers import device_registry
 
 from . import const
 from .hassmic import HassMic
@@ -16,9 +17,15 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up hassmic from a config entry."""
 
+    dr = device_registry.async_get(hass)
+    device = dr.async_get_device(
+        identifiers={(const.DOMAIN, entry.unique_id)},
+        )
+    _LOGGER.debug("Device id: %s", device.id)
     # Create a HassMic instance and keep it in the runtime_data of the
     # ConfigEntry, so it can be accessed from anywhere in the entry.
-    entry.runtime_data = HassMic(hass, entry)
+
+    entry.runtime_data = HassMic(hass, entry, device)
 
     # TODO Optionally validate config entry options before setting up platform
 
