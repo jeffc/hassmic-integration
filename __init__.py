@@ -18,9 +18,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up hassmic from a config entry."""
 
     dr = device_registry.async_get(hass)
-    device = dr.async_get_device(
-        identifiers={(const.DOMAIN, entry.unique_id)},
-        )
+
+    device = dr.async_get_or_create(
+        config_entry_id = entry.entry_id,
+        name = entry.title,
+        identifiers = {(const.DOMAIN, entry.unique_id)}
+    )
     _LOGGER.debug("Device id: %s", device.id)
     # Create a HassMic instance and keep it in the runtime_data of the
     # ConfigEntry, so it can be accessed from anywhere in the entry.
@@ -49,7 +52,6 @@ def init_entity(entity: Entity, key: str, config_entry: ConfigEntry) -> str:
         "icon", "mdi:numeric-0"
     )
     entity.device_info = DeviceInfo(
-        name=config_entry.title,
         identifiers={(const.DOMAIN, unique_id)},
     )
 
